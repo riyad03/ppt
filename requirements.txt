@@ -1,0 +1,8 @@
+python-pptx
+pydantic>=2.5
+pyyaml
+langgraph
+langchain-core
+langchain-ollama
+langchain-openai
+python-dotenv

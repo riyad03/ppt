@@ -1,0 +1,38 @@
+# Atlas Guardian default theme.
+# Multi-tenant: one file per client, resolved at graph startup.
+# No color or font should ever be hardcoded in the renderer.
+
+name: "Atlas Guardian — défaut"
+
+fonts:
+  headings: "Arial"
+  body: "Arial"
+
+colors:
+  # Client's primary color (headings, structural elements)
+  primary: "1B2A4A"
+  # Single accent, used sparingly (key figures, high criticality)
+  accent: "C8102E"
+  # Body text
+  text: "1A1A1A"
+  # Secondary text, sources, footer notes
+  muted: "6B7280"
+  # Table rules, separators
+  rule: "D9DCE1"
+  # Slide background
+  background: "FFFFFF"
+  # Background of indented blocks (text excerpts, boxes)
+  block_background: "F4F5F7"
+  # Background of section-divider slides
+  section_background: "1B2A4A"
+
+criticality:
+  Faible: "6B7280"
+  Moyenne: "B87503"
+  Élevée: "C8102E"
+
+# Optional path to the client's logo (PNG, transparent background).
+logo: null
+
+# Footer mention, repeated on every content slide.
+footer: "Document de travail — diffusion restreinte"
