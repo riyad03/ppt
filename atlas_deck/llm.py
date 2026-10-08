@@ -33,6 +33,16 @@ def get_llm() -> Any:
             model=model,
             base_url=os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
             temperature=temperature,
+            # A little above Ollama's 4096 default: our prompts carry the
+            # note's plan, the template's size limits and the headings already
+            # written, and were brushing the ceiling. Kept modest on purpose —
+            # on CPU the KV cache is the cost driver, and 8192 pushed calls
+            # from ~40 seconds to several minutes each.
+            num_ctx=int(os.getenv("QWEN_NUM_CTX", "5120")),
+            # A slide's worth of structured output is a few hundred tokens.
+            # Capping it turns a runaway into a fast failure the retry loop can
+            # handle, instead of a quarter-hour stall.
+            num_predict=int(os.getenv("QWEN_NUM_PREDICT", "1024")),
         )
 
     if provider == "openai_compatible":

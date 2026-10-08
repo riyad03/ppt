@@ -8,8 +8,9 @@ déterministe.
 atlas_deck/
 ├── schema.py            # contrat de deck (Pydantic) — 8 types de slides
 ├── renderer.py          # moteur de rendu python-pptx, un helper par type
-├── theme.py             # résolution du thème par tenant
+├── theme.py             # style : couleurs, polices, géométrie de page
 ├── themes/default.yaml  # charte : un fichier par client
+├── template_probe.py    # mesure la charte d'un .pptx client (couleurs, polices, marges, logo)
 ├── llm.py               # fabrique du modèle (Ollama local ↔ endpoint compatible OpenAI)
 └── graph.py             # sous-graphe LangGraph : plan → render → qa
 demo.py                  # deck d'exemple, sans appel LLM
@@ -49,6 +50,36 @@ QWEN_MODEL=qwen/qwen-2.5-72b-instruct   # ou le nom exposé par le serveur vLLM
 OPENAI_BASE_URL=https://openrouter.ai/api/v1
 OPENAI_API_KEY=...
 ```
+
+### Adapter le deck au template d'un client
+
+Le client fournit son `.pptx` — un vrai template, un ancien deck, un export
+d'un autre outil, peu importe : rien n'exige qu'il contienne des layouts ou
+des placeholders.
+
+```bash
+python agent.py --request "..." --context-file note.txt --template client.pptx
+```
+
+`atlas_deck/template_probe.py` mesure ses slides réelles et en déduit les
+couleurs (fond, titres, corps, atténué, accent), les polices et leurs tailles,
+les marges, le logo (une image répétée au même endroit) et le pied de page. Le
+rendu utilise ensuite ces valeurs — sans toucher au code, et sans YAML à
+écrire à la main.
+
+Ce qui n'a pas pu être mesuré retombe sur `themes/default.yaml`. La commande
+affiche ce qu'elle a trouvé, pour contrôle :
+
+```
+Measured client.pptx:
+  - fonts: heading=Georgia (at 30pt), body=Verdana (at 13pt)
+  - colors: accent=E87A00, background=FFFFFF, primary=1E5B3A, text=222222
+  - margins: left=1.2in, right edge=8.2in, ...
+  - logo found at (8.3, 0.4, 0.9, 0.5)
+```
+
+Limite assumée : cela reproduit la *charte* (couleurs, polices, marges, logo),
+pas un schéma ou un graphique dessiné à la main dans leur deck.
 
 ## Les 8 types de slides
 
@@ -119,8 +150,10 @@ séparé, jamais dans le process de l'API.
 
 ## Choix de conception à connaître
 
-- **Pas de `.potx`.** Le style appartenant au client, un template par tenant serait
-  ingérable ; la géométrie vient de la grille du renderer, les couleurs du YAML.
+- **Pas de `.potx`.** On n'écrit jamais *dans* le fichier du client et on ne dépend
+  pas de ses layouts ou placeholders — beaucoup de « templates » n'en ont pas. On
+  mesure ses slides réelles (`template_probe.py`) et on redessine avec les valeurs
+  obtenues ; à défaut de template, la grille du renderer et le YAML s'appliquent.
 - **Arial partout**, disponible sur les postes des institutions financières. Le
   rendu LibreOffice utilise une substitution : contrôler sous PowerPoint avant
   livraison.

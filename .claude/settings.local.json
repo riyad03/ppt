@@ -4,7 +4,17 @@
       "Bash(.venv/Scripts/python.exe *)",
       "Bash(ollama list*)",
       "Bash(ollama pull*)",
-      "Bash(ollama ps*)"
+      "Bash(ollama ps*)",
+      "Bash(mkdir -p \"sorties/lock-test.pptx\")",
+      "Bash(.venv/Scripts/python.exe -c ' *)",
+      "Bash(rmdir \"sorties/lock-test.pptx\")",
+      "Bash(rm -f sorties/lock-test-2.pptx)",
+      "Bash(.venv/Scripts/python.exe demo.py sorties/r1.pptx)",
+      "Bash(.venv/Scripts/python.exe demo.py sorties/r2.pptx --template templates/exemple-client.pptx)",
+      "Bash(.venv/Scripts/python.exe -c \"import agent, atlas_deck.graph, atlas_deck.slide_reuse, atlas_deck.renderer; print\\('imports OK'\\)\")",
+      "Bash(python -)",
+      "Bash(.venv/Scripts/python.exe -c \"import atlas_deck.graph, atlas_deck.renderer, agent; print\\('imports OK'\\)\")",
+      "Bash(.venv/Scripts/python.exe demo.py sorties/x.pptx --template \"templates/Cute Blackboard Student Council Presentation.pptx\")"
     ]
   }
 }

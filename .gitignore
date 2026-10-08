@@ -17,6 +17,16 @@ dist/
 
 # Generated deck output
 /sorties/
+/twice/
+
+# Artwork classifications, keyed by image bytes — a local cache rebuilt on
+# demand, and derived from client templates we do not commit either.
+.artwork-labels.json
+
+# Client templates dropped in for testing, and anything uploaded through the
+# web interface — their data, not ours, at any depth
+/templates/**/*.pptx
+/templates/*.pptx
 
 # Editors / OS
 .vscode/

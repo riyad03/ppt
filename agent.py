@@ -1,9 +1,14 @@
 """CLI: generates a regulatory-note .pptx via the LangGraph + Qwen graph.
 
-    python agent.py --request "..." [--context-file path.txt] [--tenant default] [--out dir]
+    python agent.py --request "..." [--context-file path.txt] [--tenant default]
+                    [--template client.pptx] [--out dir]
 
 With no arguments, uses a sample request to verify the full chain
 (plan → render → qa) end-to-end against a real model.
+
+`--template` takes any .pptx — a real template, an old deck, an export from
+another tool. Its colors, fonts, margins and logo are measured and used for
+the output. Without it, the per-tenant YAML theme applies as before.
 """
 
 from __future__ import annotations
@@ -13,6 +18,8 @@ from pathlib import Path
 
 from atlas_deck.graph import build_graph
 from atlas_deck.llm import get_llm
+from atlas_deck.template_probe import probe
+from atlas_deck.theme import Theme
 
 # Kept in French: this is the sample business content fed to the LLM (a
 # French regulatory-note request), not code.
@@ -42,6 +49,7 @@ def main() -> None:
     parser.add_argument("--request", default=DEFAULT_REQUEST)
     parser.add_argument("--context-file", type=Path, default=None)
     parser.add_argument("--tenant", default="default")
+    parser.add_argument("--template", type=Path, default=None)
     parser.add_argument("--out", dest="output_dir", default="./sorties")
     args = parser.parse_args()
 
@@ -51,8 +59,16 @@ def main() -> None:
         else DEFAULT_CONTEXT
     )
 
+    theme = None
+    if args.template:
+        style = probe(args.template)
+        print(f"Measured {args.template.name}:")
+        for note in style.notes:
+            print(f"  - {note}")
+        theme = Theme.from_template(style)
+
     llm = get_llm()
-    graph = build_graph(llm)
+    graph = build_graph(llm, theme=theme, template_path=args.template)
     state = graph.invoke(
         {
             "request": args.request,

@@ -7,6 +7,7 @@ overflow), later surfaced in the graph's state.
 
 from __future__ import annotations
 
+import io
 import math
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -28,25 +29,12 @@ from .schema import (
     TimelineSlide,
     TitleSlide,
 )
+from .slide_reuse import allocate_designs, build_from_design, catalog
 from .theme import Theme
 
-# --------------------------------------------------------------------------
-# Grid — 16:9, 13.333" x 7.5". All values in inches.
-# --------------------------------------------------------------------------
-SLIDE_W, SLIDE_H = 13.333, 7.5
-MARGIN = 0.75
-USABLE_W = SLIDE_W - 2 * MARGIN
-TITLE_Y = 0.62
-TITLE_H = 0.95
-CONTENT_Y = 1.85
-FOOTER_Y = 6.95
-CONTENT_H = FOOTER_Y - 0.25 - CONTENT_Y
-
-COVER_TITLE_PT = 34
-TITLE_PT = 21
-BODY_PT = 14
-SMALL_PT = 11
-SOURCE_PT = 9
+# The grid — every position, size and type size — comes from the `Theme`, so a
+# style measured off a client's template drives the layout without touching
+# this file. `Theme`'s defaults are the house grid (16:9, 0.75" margins).
 
 
 @dataclass
@@ -128,6 +116,33 @@ def _blank_slide(prs: Presentation, theme: Theme, background: str = "background"
     background_shape = slide.background.fill
     background_shape.solid()
     background_shape.fore_color.rgb = theme.color(background)
+
+    # Some designs carry their look in artwork rather than a fill colour — a
+    # chalkboard, a texture, a photographic cover. Where the template had a
+    # full-slide image, it goes down first and everything else draws on top.
+    if theme.background_image and background == "background":
+        slide.shapes.add_picture(
+            io.BytesIO(theme.background_image), 0, 0,
+            width=Inches(theme.slide_w), height=Inches(theme.slide_h),
+        )
+        # The reused artwork is whatever covered the template's slide — often
+        # the patterned surround rather than the dark panel their text sat on.
+        # Our text colours were measured against that panel, so writing
+        # straight onto the artwork can leave white on pale grey. A panel in
+        # the background colour restores the contrast those colours assume.
+        _rect(
+            slide,
+            theme.margin / 2,
+            theme.title_y - 0.25,
+            theme.slide_w - theme.margin,
+            theme.footer_y - theme.title_y + 0.55,
+            theme.color("background"),
+        )
+
+    # A logo measured off a client template was found repeating across their
+    # slides, so it repeats across ours, in the same spot.
+    if theme.logo_box:
+        _place_logo(slide, theme)
     return slide
 
 
@@ -135,17 +150,17 @@ def _action_title(slide, text: str, theme: Theme) -> list[str]:
     _text(
         slide,
         text,
-        MARGIN,
-        TITLE_Y,
-        USABLE_W,
-        TITLE_H,
-        pt=TITLE_PT,
+        theme.margin,
+        theme.title_y,
+        theme.usable_w,
+        theme.title_h,
+        pt=theme.title_pt,
         color=theme.color("primary"),
         font=theme.heading_font,
         bold=True,
         anchor=MSO_ANCHOR.TOP,
     )
-    if _estimate_height(text, USABLE_W, TITLE_PT) > TITLE_H:
+    if _estimate_height(text, theme.usable_w, theme.title_pt) > theme.title_h:
         return [f"Title too long, overflows into the content area: « {text[:60]}… »"]
     return []
 
@@ -155,22 +170,22 @@ def _footer(slide, theme: Theme, number: int):
         _text(
             slide,
             theme.footer,
-            MARGIN,
-            FOOTER_Y,
-            USABLE_W - 1,
+            theme.margin,
+            theme.footer_y,
+            theme.usable_w - 1,
             0.28,
-            pt=SOURCE_PT,
+            pt=theme.source_pt,
             color=theme.color("muted"),
             font=theme.body_font,
         )
     _text(
         slide,
         str(number),
-        SLIDE_W - MARGIN - 0.6,
-        FOOTER_Y,
+        theme.slide_w - theme.margin - 0.6,
+        theme.footer_y,
         0.6,
         0.28,
-        pt=SOURCE_PT,
+        pt=theme.source_pt,
         color=theme.color("muted"),
         font=theme.body_font,
         align=PP_ALIGN.RIGHT,
@@ -183,11 +198,11 @@ def _source_line(slide, text: str | None, theme: Theme):
     _text(
         slide,
         f"Source : {text}",
-        MARGIN,
-        FOOTER_Y - 0.42,
-        USABLE_W,
+        theme.margin,
+        theme.footer_y - 0.42,
+        theme.usable_w,
         0.3,
-        pt=SOURCE_PT,
+        pt=theme.source_pt,
         color=theme.color("muted"),
         font=theme.body_font,
     )
@@ -200,52 +215,74 @@ def _source_line(slide, text: str | None, theme: Theme):
 
 def _render_title(prs, s: TitleSlide, theme: Theme, deck: Deck, number: int) -> list[str]:
     slide = _blank_slide(prs, theme)
-    y = 2.6
+    y = theme.slide_h * 0.35
     _text(
         slide,
         s.title,
-        MARGIN,
+        theme.margin,
         y,
-        USABLE_W - 2,
+        theme.usable_w - 2,
         1.6,
-        pt=COVER_TITLE_PT,
+        pt=theme.cover_title_pt,
         color=theme.color("primary"),
         font=theme.heading_font,
         bold=True,
         line_spacing=1.1,
     )
-    y += _estimate_height(s.title, USABLE_W - 2, COVER_TITLE_PT) + 0.25
+    y += _estimate_height(s.title, theme.usable_w - 2, theme.cover_title_pt) + 0.25
     if s.subtitle:
         _text(
-            slide, s.subtitle, MARGIN, y, USABLE_W - 2, 0.5,
-            pt=16, color=theme.color("text"), font=theme.body_font,
+            slide, s.subtitle, theme.margin, y, theme.usable_w - 2, 0.5,
+            pt=int(theme.body_pt * 1.15), color=theme.color("text"), font=theme.body_font,
         )
         y += 0.55
     if s.reference:
         _text(
-            slide, s.reference, MARGIN, y, USABLE_W - 2, 0.4,
-            pt=SMALL_PT, color=theme.color("muted"), font=theme.body_font,
+            slide, s.reference, theme.margin, y, theme.usable_w - 2, 0.4,
+            pt=theme.small_pt, color=theme.color("muted"), font=theme.body_font,
         )
     _text(
-        slide, deck.entity, MARGIN, FOOTER_Y - 0.1, USABLE_W, 0.35,
-        pt=SMALL_PT, color=theme.color("muted"), font=theme.body_font,
+        slide, deck.entity, theme.margin, theme.footer_y - 0.1, theme.usable_w, 0.35,
+        pt=theme.small_pt, color=theme.color("muted"), font=theme.body_font,
     )
-    if theme.logo and theme.logo.exists():
-        slide.shapes.add_picture(
-            str(theme.logo), Inches(SLIDE_W - MARGIN - 1.6), Inches(MARGIN), height=Inches(0.55)
-        )
+    if not theme.logo_box:  # otherwise every slide already carries it
+        _place_logo(slide, theme)
     return []
+
+
+def _place_logo(slide, theme: Theme) -> None:
+    """The logo comes either from a YAML theme (a path on disk) or from a
+    measured template (the raw image bytes, plus where it sat on their
+    slides — reused so it lands where their logo belongs)."""
+    if not theme.logo:
+        return
+    if isinstance(theme.logo, bytes):
+        source = io.BytesIO(theme.logo)
+    elif theme.logo.exists():
+        source = str(theme.logo)
+    else:
+        return
+
+    if theme.logo_box:
+        left, top, width, _ = theme.logo_box
+        slide.shapes.add_picture(source, Inches(left), Inches(top), width=Inches(width))
+    else:
+        slide.shapes.add_picture(
+            source, Inches(theme.slide_w - theme.margin - 1.6), Inches(theme.margin), height=Inches(0.55)
+        )
 
 
 def _render_section(prs, s: SectionSlide, theme: Theme, deck: Deck, number: int) -> list[str]:
     slide = _blank_slide(prs, theme, background="section_background")
     _text(
-        slide, f"{s.number:02d}", MARGIN, 2.7, 2.0, 1.0,
-        pt=40, color=theme.color("background"), font=theme.heading_font, bold=True,
+        slide, f"{s.number:02d}", theme.margin, theme.slide_h * 0.36, 2.0, 1.0,
+        pt=int(theme.cover_title_pt * 1.15), color=theme.color("background"),
+        font=theme.heading_font, bold=True,
     )
     _text(
-        slide, s.title, MARGIN, 3.65, USABLE_W - 1.5, 1.2,
-        pt=28, color=theme.color("background"), font=theme.heading_font, bold=True,
+        slide, s.title, theme.margin, theme.slide_h * 0.49, theme.usable_w - 1.5, 1.2,
+        pt=int(theme.title_pt * 1.3), color=theme.color("background"),
+        font=theme.heading_font, bold=True,
     )
     return []
 
@@ -256,18 +293,18 @@ def _render_bullets(prs, s: BulletsSlide, theme: Theme, deck: Deck, number: int)
     _footer(slide, theme, number)
     _source_line(slide, s.source, theme)
 
-    x_bullet, x_text = MARGIN, MARGIN + 0.32
-    w = USABLE_W - 0.32
-    y = CONTENT_Y
+    x_bullet, x_text = theme.margin, theme.margin + 0.32
+    w = theme.usable_w - 0.32
+    y = theme.content_y
     for point in s.points:
-        h = _estimate_height(point, w, BODY_PT)
+        h = _estimate_height(point, w, theme.body_pt)
         _rect(slide, x_bullet, y + 0.09, 0.1, 0.1, theme.color("primary"))
         _text(
             slide, point, x_text, y, w, h + 0.1,
-            pt=BODY_PT, color=theme.color("text"), font=theme.body_font,
+            pt=theme.body_pt, color=theme.color("text"), font=theme.body_font,
         )
         y += h + 0.30
-    if y > CONTENT_Y + CONTENT_H:
+    if y > theme.content_y + theme.content_h:
         warnings.append(
             f"Content too dense on « {s.action_title[:50]}… » : "
             f"{len(s.points)} points, split the slide."
@@ -280,36 +317,36 @@ def _render_reference(prs, s: ReferenceSlide, theme: Theme, deck: Deck, number: 
     warnings = _action_title(slide, s.action_title, theme)
     _footer(slide, theme, number)
 
-    col_w = (USABLE_W - 0.6) / 2
-    x_right = MARGIN + col_w + 0.6
+    col_w = (theme.usable_w - 0.6) / 2
+    x_right = theme.margin + col_w + 0.6
 
     # Left column: the regulatory text, in an indented block.
-    block_h = min(CONTENT_H, _estimate_height(s.excerpt, col_w - 0.6, SMALL_PT) + 1.25)
-    _rect(slide, MARGIN, CONTENT_Y, col_w, block_h, theme.color("block_background"))
+    block_h = min(theme.content_h, _estimate_height(s.excerpt, col_w - 0.6, theme.small_pt) + 1.25)
+    _rect(slide, theme.margin, theme.content_y, col_w, block_h, theme.color("block_background"))
     _text(
-        slide, s.reference, MARGIN + 0.3, CONTENT_Y + 0.28, col_w - 0.6, 0.5,
-        pt=SMALL_PT, color=theme.color("primary"), font=theme.body_font, bold=True,
+        slide, s.reference, theme.margin + 0.3, theme.content_y + 0.28, col_w - 0.6, 0.5,
+        pt=theme.small_pt, color=theme.color("primary"), font=theme.body_font, bold=True,
     )
     _text(
-        slide, f"« {s.excerpt} »", MARGIN + 0.3, CONTENT_Y + 0.85,
+        slide, f"« {s.excerpt} »", theme.margin + 0.3, theme.content_y + 0.85,
         col_w - 0.6, block_h - 1.1,
-        pt=SMALL_PT, color=theme.color("text"), font=theme.body_font,
+        pt=theme.small_pt, color=theme.color("text"), font=theme.body_font,
     )
-    if block_h >= CONTENT_H:
+    if block_h >= theme.content_h:
         warnings.append("Regulatory excerpt too long for the left column.")
 
     # Right column: the interpretation.
     _text(
-        slide, "Lecture", x_right, CONTENT_Y, col_w, 0.35,
-        pt=SMALL_PT, color=theme.color("muted"), font=theme.body_font, bold=True,
+        slide, "Lecture", x_right, theme.content_y, col_w, 0.35,
+        pt=theme.small_pt, color=theme.color("muted"), font=theme.body_font, bold=True,
     )
-    y = CONTENT_Y + 0.5
+    y = theme.content_y + 0.5
     for point in s.interpretation:
-        h = _estimate_height(point, col_w - 0.32, BODY_PT)
+        h = _estimate_height(point, col_w - 0.32, theme.body_pt)
         _rect(slide, x_right, y + 0.09, 0.1, 0.1, theme.color("primary"))
         _text(
             slide, point, x_right + 0.32, y, col_w - 0.32, h + 0.1,
-            pt=BODY_PT, color=theme.color("text"), font=theme.body_font,
+            pt=theme.body_pt, color=theme.color("text"), font=theme.body_font,
         )
         y += h + 0.30
     return warnings
@@ -322,11 +359,15 @@ def _render_impacts(prs, s: ImpactsSlide, theme: Theme, deck: Deck, number: int)
     _source_line(slide, s.source, theme)
 
     headers = ["Exigence", "Impact", "Entité", "Criticité"]
-    widths = [3.2, 5.2, 1.9, 1.5]
+    # Proportions rather than fixed inches: the table has to fill whatever
+    # width the template leaves, and the row has to fit the template's own
+    # type size — otherwise every cell overflows on a wider slide or in
+    # larger type.
+    widths = [ratio * theme.usable_w for ratio in (0.27, 0.44, 0.16, 0.13)]
     n_rows = len(s.rows) + 1
-    row_h = 0.52
+    row_h = max(0.52, 2 * theme.small_pt * 1.28 / 72 + 0.16)
     table = slide.shapes.add_table(
-        n_rows, 4, Inches(MARGIN), Inches(CONTENT_Y),
+        n_rows, 4, Inches(theme.margin), Inches(theme.content_y),
         Inches(sum(widths)), Inches(row_h * n_rows),
     ).table
     table.first_row = True
@@ -338,7 +379,7 @@ def _render_impacts(prs, s: ImpactsSlide, theme: Theme, deck: Deck, number: int)
         cell.text = header
         cell.fill.solid()
         cell.fill.fore_color.rgb = theme.color("primary")
-        _style_cell(cell, theme, SMALL_PT, theme.color("background"), bold=True)
+        _style_cell(cell, theme, theme.small_pt, theme.color("background"), bold=True)
 
     for i, row in enumerate(s.rows, start=1):
         values = [row.requirement, row.impact, row.entity, row.criticality]
@@ -352,8 +393,8 @@ def _render_impacts(prs, s: ImpactsSlide, theme: Theme, deck: Deck, number: int)
                 if j == 3
                 else theme.color("text")
             )
-            _style_cell(cell, theme, SMALL_PT, color, bold=(j == 3))
-            if _estimate_height(value, widths[j] - 0.2, SMALL_PT) > row_h - 0.12:
+            _style_cell(cell, theme, theme.small_pt, color, bold=(j == 3))
+            if _estimate_height(value, widths[j] - 0.2, theme.small_pt) > row_h - 0.12:
                 warnings.append(
                     f"Cell too long (row {i}, column « {headers[j]} »)."
                 )
@@ -380,17 +421,18 @@ def _render_kpi(prs, s: KpiSlide, theme: Theme, deck: Deck, number: int) -> list
 
     n = len(s.kpis)
     gap = 0.5
-    w = (USABLE_W - gap * (n - 1)) / n
-    y = CONTENT_Y + 0.7
+    w = (theme.usable_w - gap * (n - 1)) / n
+    y = theme.content_y + 0.7
     for i, kpi in enumerate(s.kpis):
-        x = MARGIN + i * (w + gap)
+        x = theme.margin + i * (w + gap)
         _text(
             slide, kpi.value, x, y, w, 1.1,
-            pt=48, color=theme.color("accent"), font=theme.heading_font, bold=True,
+            pt=int(theme.cover_title_pt * 1.4), color=theme.color("accent"),
+            font=theme.heading_font, bold=True,
         )
         _text(
             slide, kpi.label, x, y + 1.2, w, 0.9,
-            pt=BODY_PT, color=theme.color("text"), font=theme.body_font,
+            pt=theme.body_pt, color=theme.color("text"), font=theme.body_font,
         )
         if len(kpi.value) > 8:
             warnings.append(f"Key figure too long for the column: « {kpi.value} ».")
@@ -403,24 +445,24 @@ def _render_timeline(prs, s: TimelineSlide, theme: Theme, deck: Deck, number: in
     _footer(slide, theme, number)
 
     n = len(s.milestones)
-    axis_y = CONTENT_Y + 1.35
-    w = USABLE_W / n
-    _rect(slide, MARGIN, axis_y, USABLE_W, 0.02, theme.color("rule"))
+    axis_y = theme.content_y + 1.35
+    w = theme.usable_w / n
+    _rect(slide, theme.margin, axis_y, theme.usable_w, 0.02, theme.color("rule"))
     for i, milestone in enumerate(s.milestones):
-        x = MARGIN + i * w
+        x = theme.margin + i * w
         cx = x + w / 2
         _rect(slide, cx - 0.09, axis_y - 0.08, 0.18, 0.18, theme.color("primary"), MSO_SHAPE.OVAL)
         _text(
             slide, milestone.date, x, axis_y - 0.75, w, 0.4,
-            pt=BODY_PT, color=theme.color("primary"), font=theme.heading_font,
+            pt=theme.body_pt, color=theme.color("primary"), font=theme.heading_font,
             bold=True, align=PP_ALIGN.CENTER,
         )
         _text(
             slide, milestone.label, x + 0.15, axis_y + 0.35, w - 0.3, 1.4,
-            pt=SMALL_PT, color=theme.color("text"), font=theme.body_font,
+            pt=theme.small_pt, color=theme.color("text"), font=theme.body_font,
             align=PP_ALIGN.CENTER,
         )
-        if _estimate_height(milestone.label, w - 0.3, SMALL_PT) > 1.4:
+        if _estimate_height(milestone.label, w - 0.3, theme.small_pt) > 1.4:
             warnings.append(f"Milestone label too long: « {milestone.label[:40]}… ».")
     return warnings
 
@@ -430,24 +472,25 @@ def _render_summary(prs, s: SummarySlide, theme: Theme, deck: Deck, number: int)
     warnings = _action_title(slide, s.action_title, theme)
     _footer(slide, theme, number)
 
-    y = CONTENT_Y
+    y = theme.content_y
     for i, reco in enumerate(s.recommendations, start=1):
-        detail_h = _estimate_height(reco.detail, USABLE_W - 0.85, BODY_PT)
+        detail_h = _estimate_height(reco.detail, theme.usable_w - 0.85, theme.body_pt)
         _text(
-            slide, str(i), MARGIN, y - 0.05, 0.6, 0.6,
-            pt=24, color=theme.color("accent"), font=theme.heading_font, bold=True,
-        )
-        _text(
-            slide, reco.title, MARGIN + 0.65, y, USABLE_W - 0.85, 0.35,
-            pt=BODY_PT + 1, color=theme.color("primary"),
+            slide, str(i), theme.margin, y - 0.05, 0.6, 0.6,
+            pt=int(theme.title_pt * 1.15), color=theme.color("accent"),
             font=theme.heading_font, bold=True,
         )
         _text(
-            slide, reco.detail, MARGIN + 0.65, y + 0.38, USABLE_W - 0.85, detail_h + 0.1,
-            pt=BODY_PT, color=theme.color("text"), font=theme.body_font,
+            slide, reco.title, theme.margin + 0.65, y, theme.usable_w - 0.85, 0.35,
+            pt=theme.body_pt + 1, color=theme.color("primary"),
+            font=theme.heading_font, bold=True,
+        )
+        _text(
+            slide, reco.detail, theme.margin + 0.65, y + 0.38, theme.usable_w - 0.85, detail_h + 0.1,
+            pt=theme.body_pt, color=theme.color("text"), font=theme.body_font,
         )
         y += 0.38 + detail_h + 0.45
-    if y > CONTENT_Y + CONTENT_H:
+    if y > theme.content_y + theme.content_h:
         warnings.append("Summary slide too dense: reduce to 3 recommendations.")
     return warnings
 
@@ -464,17 +507,73 @@ _HELPERS = {
 }
 
 
-def render_deck(deck: Deck, theme: Theme, output_path: str | Path) -> RenderResult:
-    """Renders the deck to .pptx. Deterministic: same inputs, same file."""
+def render_deck(
+    deck: Deck,
+    theme: Theme,
+    output_path: str | Path,
+    template_path: str | Path | None = None,
+    design_indices: list[int | None] | None = None,
+) -> RenderResult:
+    """Renders the deck to .pptx. Deterministic: same inputs, same file.
+
+    With `template_path`, each slide is built on the template's own design
+    where a suitable one exists — their artwork kept, the repeating part
+    stretched to our item count. Anything the template has no design for (an
+    impact table) is drawn from scratch as usual.
+    """
     prs = Presentation()
-    prs.slide_width = Inches(SLIDE_W)
-    prs.slide_height = Inches(SLIDE_H)
+    prs.slide_width = Inches(theme.slide_w)
+    prs.slide_height = Inches(theme.slide_h)
+
+    source, designs = None, []
+    if template_path:
+        source = Presentation(str(template_path))
+        designs = catalog(source, theme.slide_w, theme.slide_h)
 
     warnings: list[str] = []
-    for number, s in enumerate(deck.slides, start=1):
-        warnings += _HELPERS[s.type](prs, s, theme, deck, number)
+    if designs and design_indices:
+        # Reuse the planner's choices: the text was written to fit these exact
+        # boxes, so re-deciding here would put it in differently-sized ones.
+        by_index = {d.index: d for d in designs}
+        allocation = [by_index.get(i) if i is not None else None for i in design_indices]
+    else:
+        allocation = allocate_designs(designs, deck.slides) if designs else [None] * len(deck.slides)
+    for number, (s, design) in enumerate(zip(deck.slides, allocation), start=1):
+        if design is not None:
+            build_from_design(prs, source, design, s, theme.slide_w, theme.slide_h)
+        else:
+            warnings += _HELPERS[s.type](prs, s, theme, deck, number)
+    if designs:
+        chosen = [d for d in allocation if d is not None]
+        warnings.append(
+            f"{len(chosen)}/{len(deck.slides)} slides built on the template's designs "
+            f"({len({d.index for d in chosen})} different ones); the rest drawn from scratch."
+        )
 
     path = Path(output_path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    prs.save(str(path))
+    path = _save(prs, path, warnings)
     return RenderResult(path=path, warnings=warnings)
+
+
+def _save(prs: Presentation, path: Path, warnings: list[str]) -> Path:
+    """Save, working around the file being open in PowerPoint.
+
+    Windows refuses to overwrite a deck someone is viewing. Discarding a
+    generation that cost minutes of model time over that would be absurd, so
+    a numbered variant is written instead and the caller is told which.
+    """
+    for attempt in range(20):
+        candidate = path if attempt == 0 else path.with_name(f"{path.stem}-{attempt + 1}{path.suffix}")
+        try:
+            prs.save(str(candidate))
+            if attempt:
+                warnings.append(
+                    f"{path.name} is open in another program; saved as {candidate.name} instead."
+                )
+            return candidate
+        except PermissionError:
+            continue
+    raise PermissionError(
+        f"Could not write {path.name} or any numbered variant — the folder or files are locked."
+    )

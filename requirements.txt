@@ -1,4 +1,5 @@
 python-pptx
+lxml
 pydantic>=2.5
 pyyaml
 langgraph
@@ -6,3 +7,16 @@ langchain-core
 langchain-ollama
 langchain-openai
 python-dotenv
+
+# Web interface (web/server.py)
+fastapi
+uvicorn[standard]
+python-multipart
+
+# Artwork classification (atlas_deck/template_vision.py). Optional: without
+# them the catalogue falls back to geometry alone and nothing breaks.
+# Install torch from the CPU index to avoid pulling CUDA:
+#   pip install torch --index-url https://download.pytorch.org/whl/cpu
+torch
+transformers
+pillow

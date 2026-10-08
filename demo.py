@@ -1,9 +1,14 @@
 """Renderer test without any LLM call — a hand-built deck.
 
-    python demo.py [output_path.pptx]
+    python demo.py [output_path.pptx] [--template client.pptx]
+
+With `--template`, the deck is rendered in that file's colors, fonts, margins
+and logo. Since no model is involved this returns in about a second, which
+makes it the quick way to check how a client's template comes out.
 """
 
-import sys
+import argparse
+from pathlib import Path
 
 from atlas_deck.renderer import render_deck
 from atlas_deck.schema import (
@@ -132,8 +137,24 @@ deck = Deck(
 )
 
 if __name__ == "__main__":
-    output = sys.argv[1] if len(sys.argv) > 1 else "demo-note-reglementaire.pptx"
-    result = render_deck(deck, Theme.load("default"), output)
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("output", nargs="?", default="demo-note-reglementaire.pptx")
+    parser.add_argument("--template", type=Path, default=None)
+    args = parser.parse_args()
+
+    if args.template:
+        from atlas_deck.template_probe import probe
+
+        style = probe(args.template)
+        print(f"Measured {args.template.name}:")
+        for note in style.notes:
+            print(f"  - {note}")
+        theme = Theme.from_template(style)
+    else:
+        theme = Theme.load("default")
+
+    output = args.output
+    result = render_deck(deck, theme, output, template_path=args.template)
     print(f"File: {result.path}")
     if result.warnings:
         print("Layout warnings:")
